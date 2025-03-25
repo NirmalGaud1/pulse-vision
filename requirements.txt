@@ -1,5 +1,5 @@
 streamlit 
 opencv-python-headless==4.8.0.74
 cvzone 
-numpy
+numpy==1.26.4
 mediapipe
