@@ -67,18 +67,23 @@ def process_roi(roi):
 
 if start_button and not st.session_state.running:
     st.session_state.running = True
-    st.session_state.cap = cv2.VideoCapture(0)
-    if not st.session_state.cap.isOpened():
-        st.error("Error: Could not open video capture device.")
+    try:
+        st.session_state.cap = cv2.VideoCapture(0)
+        if not st.session_state.cap.isOpened():
+            st.error("Error: Could not open video capture device. Please check your camera connection.")
+            st.session_state.running = False
+            st.session_state.cap = None
+        else:
+            st.session_state.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            st.session_state.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            signal_history = []
+            time_history = []
+            start_time = time.time()
+            st.rerun()
+    except Exception as e:
+        st.error(f"An error occurred while accessing the webcam: {e}")
         st.session_state.running = False
         st.session_state.cap = None
-    else:
-        st.session_state.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        st.session_state.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        signal_history = []
-        time_history = []
-        start_time = time.time()
-        st.rerun()
 
 if stop_button and st.session_state.running:
     st.session_state.running = False
@@ -98,7 +103,7 @@ if st.session_state.running:
     else:
         ret, frame = cap.read()
         if not ret:
-            st.error("Failed to capture video")
+            st.error("Failed to capture video frame. Please check your camera.")
             st.session_state.running = False
             if st.session_state.cap is not None:
                 st.session_state.cap.release()
@@ -147,7 +152,7 @@ if st.session_state.running:
                 signal_img = np.zeros((200, 400, 3), dtype=np.uint8)
                 if len(signal_history) > 10:
                     normalized_signals = (signal_history[-100:] - np.min(signal_history[-100:])) / \
-                                      (np.max(signal_history[-100:]) - np.min(signal_history[-100:]) + 1e-6)
+                                        (np.max(signal_history[-100:]) - np.min(signal_history[-100:]) + 1e-6)
                     for i in range(1, len(normalized_signals)):
                         cv2.line(
                             signal_img,
