@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 from scipy.signal import butter, lfilter
 import time
-import dlib
+from ultralytics import YOLO
 
 # Page config
 st.set_page_config(
@@ -16,16 +16,16 @@ st.set_page_config(
 st.sidebar.title("Settings")
 model_choice = st.sidebar.radio(
     "Select Face Detector",
-    ("Dlib (Recommended)", "OpenCV Haar Cascade")
+    ("YOLOv8-face (Recommended)", "OpenCV Haar Cascade")
 )
 
-# Initialize Dlib (load only once)
+# Initialize YOLOv8-face (load only once)
 @st.cache_resource
-def load_dlib_detector():
-    return dlib.get_frontal_face_detector()
+def load_yolo():
+    return YOLO('yolov8n.pt') # Ensure this path is correct
 
-if model_choice == "Dlib (Recommended)":
-    detector = load_dlib_detector()
+if model_choice == "YOLOv8-face (Recommended)":
+    model = load_yolo()
 
 # Main UI
 st.title("❤️ PulseVision - Real-time Heart Rate Monitoring")
@@ -59,7 +59,6 @@ update_interval = 1  # Update BPM every second
 last_update_time = time.time()
 signal_history = []
 time_history = []
-CONFIDENCE_THRESHOLD = 0.78  # Add confidence threshold.
 
 # Bandpass filter
 def butter_bandpass(lowcut, highcut, fs, order=5):
@@ -109,10 +108,9 @@ while st.session_state.running:
         break
 
     # Face detection
-    if model_choice == "Dlib (Recommended)":
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces, scores, idx = detector.run(gray, 1) # added upsampling.
-        boxes = [[face.left(), face.top(), face.right(), face.bottom()] for face in faces if scores[faces.index(face)] > CONFIDENCE_THRESHOLD] #added confidence threshold.
+    if model_choice == "YOLOv8-face (Recommended)":
+        results = model(frame, verbose=False)
+        boxes = results[0].boxes.xyxy.cpu().numpy()
     else:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -121,7 +119,7 @@ while st.session_state.running:
 
     if len(boxes) > 0:
         # Get first face
-        x1, y1, x2, y2 = boxes[0]
+        x1, y1, x2, y2 = boxes[0].astype(int)
 
         # Extract ROI (forehead)
         roi = frame[y1:y1 + (y2 - y1) // 3, x1:x2]
@@ -183,7 +181,7 @@ while st.session_state.running:
 if not st.session_state.running and st.session_state.cap is not None:
     st.session_state.cap.release()
     st.session_state.cap = None
-
+    
 # Instructions
 st.sidebar.markdown("""
 ### How to Use:
