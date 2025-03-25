@@ -22,7 +22,7 @@ model_choice = st.sidebar.radio(
 # Initialize YOLOv8-face (load only once)
 @st.cache_resource
 def load_yolo():
-    return YOLO('yolov8n-face.pt')  # Make sure to use the face detection model
+    return YOLO('yolov8n.pt')  # Make sure to use the face detection model
 
 if model_choice == "YOLOv8-face (Recommended)":
     model = load_yolo()
