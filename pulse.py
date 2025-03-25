@@ -81,20 +81,19 @@ def process_roi(roi):
     processed = (a_channel - a_channel.mean()) / a_channel.std()
     return processed
 
-# Start/Stop handlers
 if start_button:
     st.session_state.running = True
     st.session_state.cap = cv2.VideoCapture(0)
-    st.session_state.cap.set(3, 640)
-    st.session_state.cap.set(4, 480)
-    signal_history = []
-    time_history = []
-    start_time = time.time()
-
-if stop_button:
-    st.session_state.running = False
-    if st.session_state.cap is not None:
-        st.session_state.cap.release()
+    if not st.session_state.cap.isOpened():
+        st.error("Error: Could not open video capture device.")
+        st.session_state.running = False
+        st.session_state.cap = None
+    else:
+        st.session_state.cap.set(3, 640)
+        st.session_state.cap.set(4, 480)
+        signal_history = []
+        time_history = []
+        start_time = time.time()
 
 # Main processing loop
 while st.session_state.running:
