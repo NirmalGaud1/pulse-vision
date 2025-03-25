@@ -1,5 +1,4 @@
-opencv-python-headless
+streamlit 
+opencv-python 
+cvzone 
 numpy
-scipy
-streamlit
-tensorflow
