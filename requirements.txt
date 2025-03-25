@@ -4,4 +4,4 @@ ultralytics
 streamlit
 ultralytics
 opencv-python
-mesa-utils
+opencv-python-headless
