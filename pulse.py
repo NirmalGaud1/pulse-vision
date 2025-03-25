@@ -4,8 +4,6 @@ import numpy as np
 from scipy.signal import butter, lfilter
 import time
 from ultralytics import YOLO
-import tempfile
-import os
 
 # Page config
 st.set_page_config(
