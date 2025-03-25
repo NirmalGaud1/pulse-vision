@@ -14,9 +14,9 @@ class HeartRateMonitor:
         self.roi_size = (160, 120)
         self.gaussian_levels = 3
         self.amplification_factor = 170
-        self.fps = 30  # Assuming 30 FPS, adjust if needed
-        self.time_buffer = [] # for plotting time vs bpm
-        self.start_time = time.time() # for calculating elapsed time
+        self.fps = 30
+        self.time_buffer = []
+        self.start_time = time.time()
 
     def process_frame(self, frame):
         img, bboxs = self.detector.findFaces(frame, draw=False)
@@ -66,43 +66,69 @@ class HeartRateMonitor:
 
 def main():
     st.title("Real-Time Heart Rate Monitor")
-    cap = cv2.VideoCapture(0)
-    monitor = HeartRateMonitor()
-    placeholder = st.empty()
+    
+    try:
+        # Initialize camera - try different backends if needed
+        for backend in [cv2.CAP_DSHOW, cv2.CAP_ANY]:  # Try different backends
+            cap = cv2.VideoCapture(0, backend)
+            if cap.isOpened():
+                break
+        
+        if not cap.isOpened():
+            st.error("""
+                Could not access camera. Please:
+                1. Ensure camera is connected
+                2. Grant camera permissions
+                3. Try refreshing the page
+                """)
+            return
+            
+        monitor = HeartRateMonitor()
+        placeholder = st.empty()
+        stop_button = st.button("Stop Monitoring")
 
-    while True:
-        success, frame = cap.read()
-        if not success:
-            break
-        roi, frame = monitor.process_frame(frame)
-        if roi is not None:
-            pyramid = monitor.gaussian_pyramid(roi)
-            magnified_pyramid = monitor.magnify_color(pyramid)
-            filtered_pyramid = monitor.bandpass_filter(magnified_pyramid)
-            bpm = monitor.calculate_bpm(filtered_pyramid)
+        while True:
+            if stop_button:
+                st.write("Monitoring stopped")
+                break
+                
+            success, frame = cap.read()
+            if not success:
+                st.warning("Could not read frame from camera")
+                break
+                
+            roi, frame = monitor.process_frame(frame)
+            if roi is not None:
+                pyramid = monitor.gaussian_pyramid(roi)
+                magnified_pyramid = monitor.magnify_color(pyramid)
+                filtered_pyramid = monitor.bandpass_filter(magnified_pyramid)
+                bpm = monitor.calculate_bpm(filtered_pyramid)
 
-            monitor.buffer.append(bpm)
-            if len(monitor.buffer) > monitor.buffer_size:
-                monitor.buffer.pop(0)
+                monitor.buffer.append(bpm)
+                if len(monitor.buffer) > monitor.buffer_size:
+                    monitor.buffer.pop(0)
 
-            if len(monitor.buffer) == monitor.buffer_size:
-                avg_bpm = np.mean(monitor.buffer)
-                cv2.putText(frame, f"BPM: {avg_bpm:.2f}", (frame.shape[1] // 2 - 50, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                elapsed_time = time.time() - monitor.start_time
-                monitor.time_buffer.append(elapsed_time)
-                frame = monitor.plotter.update(avg_bpm, frame, monitor.time_buffer)
+                if len(monitor.buffer) == monitor.buffer_size:
+                    avg_bpm = np.mean(monitor.buffer)
+                    cv2.putText(frame, f"BPM: {avg_bpm:.2f}", (frame.shape[1] // 2 - 50, 30), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                    elapsed_time = time.time() - monitor.start_time
+                    monitor.time_buffer.append(elapsed_time)
+                    frame = monitor.plotter.update(avg_bpm, frame, monitor.time_buffer)
+                else:
+                    cv2.putText(frame, "Calculating BPM...", (frame.shape[1] // 2 - 100, 30), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+                placeholder.image(frame, channels="BGR")
             else:
-                cv2.putText(frame, "Calculating BPM...", (frame.shape[1] // 2 - 100, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                placeholder.image(frame, channels="BGR")
+                st.warning("No face detected - please position your face in the frame")
 
-            placeholder.image(frame, channels="BGR")
-
-        else:
-            placeholder.image(frame, channels="BGR")
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
+    except Exception as e:
+        st.error(f"An error occurred: {str(e)}")
+    finally:
+        if 'cap' in locals():
+            cap.release()
 
 if __name__ == "__main__":
     main()
