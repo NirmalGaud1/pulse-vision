@@ -68,10 +68,10 @@ def process_roi(roi):
 if start_button and not st.session_state.running:
     st.session_state.running = True
     try:
-        cap_index = 0 #start with 0, and increment if needed.
+        cap_index = 0
         st.session_state.cap = cv2.VideoCapture(cap_index)
         if not st.session_state.cap.isOpened():
-            cap_index = 1 #try the next index.
+            cap_index = 1
             st.session_state.cap = cv2.VideoCapture(cap_index)
             if not st.session_state.cap.isOpened():
                 st.error("Error: Could not open video capture device. Please check your camera connection.")
@@ -96,89 +96,107 @@ if start_button and not st.session_state.running:
         st.session_state.running = False
         st.session_state.cap = None
 
+if stop_button and st.session_state.running:
+    st.session_state.running = False
+    if st.session_state.cap is not None:
+        st.session_state.cap.release()
+        st.session_state.cap = None
+    st.rerun()
+
 # Load Haar Cascade classifier
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
 # Main processing loop
-if st.session_state.running:
+if st.session_state.running and st.session_state.cap is not None:
     cap = st.session_state.cap
-    if cap is None:
+    ret, frame = cap.read()
+    if not ret:
+        st.error("Failed to capture video frame. Please check your camera.")
         st.session_state.running = False
+        if st.session_state.cap is not None:
+            st.session_state.cap.release()
+            st.session_state.cap = None
     else:
-        ret, frame = cap.read()
-        if not ret:
-            st.error("Failed to capture video frame. Please check your camera.")
-            st.session_state.running = False
-            if st.session_state.cap is not None:
-                st.session_state.cap.release()
-                st.session_state.cap = None
-        else:
-            # Face detection using Haar Cascade
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-            
-            if len(faces) > 0:
-                # Get first face
-                x, y, w, h = faces[0]
-                x1, y1, x2, y2 = x, y, x + w, y + h
+        # Face detection using Haar Cascade
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
 
-                # Extract ROI (forehead)
-                roi = frame[y1:y1 + (y2 - y1) // 3, x1:x2]
+        if len(faces) > 0:
+            # Get first face
+            x, y, w, h = faces[0]
+            x1, y1, x2, y2 = x, y, x + w, y + h
 
-                # Process signal
-                processed = process_roi(roi)
-                signal = processed.mean()
-                signal_history.append(signal)
-                time_history.append(time.time() - start_time)
+            # Extract ROI (forehead)
+            roi = frame[y1:y1 + (y2 - y1) // 3, x1:x2]
 
-                # Update BPM
-                if (time.time() - last_update_time > update_interval) and (len(signal_history) > fps):
-                    filtered = bandpass_filter(signal_history[-fps:])
-                    fft = np.fft.rfft(filtered)
-                    freqs = np.fft.rfftfreq(len(filtered), d=1.0 / fps)
+            # Process signal
+            processed = process_roi(roi)
+            signal = processed.mean()
+            signal_history.append(signal)
+            time_history.append(time.time() - start_time)
 
-                    mask = (freqs >= 1.0) & (freqs <= 2.0)
-                    if np.any(mask):
-                        peak_freq = freqs[mask][np.argmax(np.abs(fft[mask]))]
-                        bpm = peak_freq * 60
-                        bpm_buffer.append(bpm)
-                        if len(bpm_buffer) > BUFFER_SIZE:
-                            bpm_buffer.pop(0)
-                        last_bpm = np.mean(bpm_buffer)
-                        last_update_time = time.time()
+            # Update BPM
+            if (time.time() - last_update_time > update_interval) and (len(signal_history) > fps):
+                filtered = bandpass_filter(signal_history[-fps:])
+                fft = np.fft.rfft(filtered)
+                freqs = np.fft.rfftfreq(len(filtered), d=1.0 / fps)
 
-                # Visualization
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(frame, f"BPM: {int(last_bpm) if last_bpm > 0 else 'Calculating...'}",
-                            (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                mask = (freqs >= 1.0) & (freqs <= 2.0)
+                if np.any(mask):
+                    peak_freq = freqs[mask][np.argmax(np.abs(fft[mask]))]
+                    bpm = peak_freq * 60
+                    bpm_buffer.append(bpm)
+                    if len(bpm_buffer) > BUFFER_SIZE:
+                        bpm_buffer.pop(0)
+                    last_bpm = np.mean(bpm_buffer)
+                    last_update_time = time.time()
 
-                # Display signal
-                signal_img = np.zeros((200, 400, 3), dtype=np.uint8)
-                if len(signal_history) > 10:
-                    normalized_signals = (signal_history[-100:] - np.min(signal_history[-100:])) / \
-                                        (np.max(signal_history[-100:]) - np.min(signal_history[-100:]) + 1e-6)
-                    for i in range(1, len(normalized_signals)):
-                        cv2.line(
-                            signal_img,
-                            (int((i - 1) * 4), int(150 * (1 - normalized_signals[i - 1]))),
-                            (int(i * 4), int(150 * (1 - normalized_signals[i]))),
-                            (0, 255, 0), 2
-                        )
+            # Visualization
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(frame, f"BPM: {int(last_bpm) if last_bpm > 0 else 'Calculating...'}",
+                        (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-            # Convert to RGB for Streamlit
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # Display signal
+            signal_img = np.zeros((200, 400, 3), dtype=np.uint8)
+            if len(signal_history) > 10:
+                normalized_signals = (signal_history[-100:] - np.min(signal_history[-100:])) / \
+                                    (np.max(signal_history[-100:]) - np.min(signal_history[-100:]) + 1e-6)
+                for i in range(1, len(normalized_signals)):
+                    cv2.line(
+                        signal_img,
+                        (int((i - 1) * 4), int(150 * (1 - normalized_signals[i - 1]))),
+                        (int(i * 4), int(150 * (1 - normalized_signals[i]))),
+                        (0, 255, 0), 2
+                    )
 
-            # Update displays
-            video_placeholder.image(frame, channels="RGB", use_column_width=True)
-            bpm_placeholder.metric("Current Heart Rate", f"{int(last_bpm)} BPM" if last_bpm > 0 else "---")
+        # Convert to RGB for Streamlit
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            if 'signal_img' in locals():
-                signal_placeholder.image(signal_img, caption="Pulse Signal", use_column_width=True)
+        # Update displays
+        video_placeholder.image(frame, channels="RGB", use_column_width=True)
+        bpm_placeholder.metric("Current Heart Rate", f"{int(last_bpm)} BPM" if last_bpm > 0 else "---")
+
+        if 'signal_img' in locals():
+            signal_placeholder.image(signal_img,signal_placeholder.image(signal_img, caption="Pulse Signal", use_column_width=True)
 
 # Cleanup when stopping
 if not st.session_state.running and st.session_state.cap is not None:
     st.session_state.cap.release()
     st.session_state.cap = None
+    
+# Instructions
+st.sidebar.markdown("""
+### How to Use:
+1. Click **Start Monitoring**
+2. Position face in camera view
+3. Remain still for accurate readings
+4. Click **Stop Monitoring** when done
+
+### Tips:
+- Ensure good lighting
+- Minimize head movements
+- Avoid strong backlight
+""")
     
 # Instructions
 st.sidebar.markdown("""
