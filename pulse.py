@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 from scipy.signal import butter, lfilter
 import time
-from ultralytics import YOLO
+import dlib
 
 # Page config
 st.set_page_config(
@@ -16,16 +16,16 @@ st.set_page_config(
 st.sidebar.title("Settings")
 model_choice = st.sidebar.radio(
     "Select Face Detector",
-    ("YOLOv8 (Recommended)", "OpenCV Haar Cascade")
+    ("Dlib (Recommended)", "OpenCV Haar Cascade")
 )
 
-# Initialize YOLOv8 (load only once)
+# Initialize Dlib (load only once)
 @st.cache_resource
-def load_yolo():
-    return YOLO('./models/yolov8n-face-lindevs.pt') # Modified path here
+def load_dlib_detector():
+    return dlib.get_frontal_face_detector()
 
-if model_choice == "YOLOv8 (Recommended)":
-    model = load_yolo()
+if model_choice == "Dlib (Recommended)":
+    detector = load_dlib_detector()
 
 # Main UI
 st.title("❤️ PulseVision - Real-time Heart Rate Monitoring")
@@ -108,9 +108,10 @@ while st.session_state.running:
         break
 
     # Face detection
-    if model_choice == "YOLOv8 (Recommended)":
-        results = model(frame, verbose=False)
-        boxes = results[0].boxes.xyxy.cpu().numpy()
+    if model_choice == "Dlib (Recommended)":
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = detector(gray)
+        boxes = [[face.left(), face.top(), face.right(), face.bottom()] for face in faces]
     else:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -119,10 +120,7 @@ while st.session_state.running:
 
     if len(boxes) > 0:
         # Get first face
-        if model_choice == "YOLOv8 (Recommended)":
-            x1, y1, x2, y2 = boxes[0].astype(int)
-        else:
-            x1, y1, x2, y2 = boxes[0]
+        x1, y1, x2, y2 = boxes[0]
 
         # Extract ROI (forehead)
         roi = frame[y1:y1 + (y2 - y1) // 3, x1:x2]
@@ -188,7 +186,7 @@ if not st.session_state.running and st.session_state.cap is not None:
 # Instructions
 st.sidebar.markdown("""
 ### How to Use:
-1. Select face detector (YOLOv8 recommended)
+1. Select face detector (Dlib recommended)
 2. Click **Start Monitoring**
 3. Position face in camera view
 4. Remain still for accurate readings
