@@ -22,7 +22,7 @@ model_choice = st.sidebar.radio(
 # Initialize YOLOv8 (load only once)
 @st.cache_resource
 def load_yolo():
-    return YOLO('yolov8n-face.pt')
+    return YOLO('./models/yolov8n-face-lindevs.pt') # Modified path here
 
 if model_choice == "YOLOv8 (Recommended)":
     model = load_yolo()
@@ -76,7 +76,7 @@ def bandpass_filter(data, lowcut=1.0, highcut=2.0, fs=30, order=5):
 # Process ROI
 def process_roi(roi):
     lab = cv2.cvtColor(roi, cv2.COLOR_BGR2LAB)
-    a_channel = lab[:,:,1]
+    a_channel = lab[:, :, 1]
     a_channel = cv2.resize(a_channel, (160, 120))
     processed = (a_channel - a_channel.mean()) / a_channel.std()
     return processed
@@ -100,13 +100,13 @@ if stop_button:
 while st.session_state.running:
     if st.session_state.cap is None:
         break
-        
+
     ret, frame = st.session_state.cap.read()
     if not ret:
         st.error("Failed to capture video")
         st.session_state.running = False
         break
-        
+
     # Face detection
     if model_choice == "YOLOv8 (Recommended)":
         results = model(frame, verbose=False)
@@ -115,30 +115,30 @@ while st.session_state.running:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         boxes = face_cascade.detectMultiScale(gray, 1.1, 4)
-        boxes = [[x, y, x+w, y+h] for (x, y, w, h) in boxes]
-        
+        boxes = [[x, y, x + w, y + h] for (x, y, w, h) in boxes]
+
     if len(boxes) > 0:
         # Get first face
         if model_choice == "YOLOv8 (Recommended)":
             x1, y1, x2, y2 = boxes[0].astype(int)
         else:
             x1, y1, x2, y2 = boxes[0]
-            
+
         # Extract ROI (forehead)
-        roi = frame[y1:y1 + (y2-y1)//3, x1:x2]
-        
+        roi = frame[y1:y1 + (y2 - y1) // 3, x1:x2]
+
         # Process signal
         processed = process_roi(roi)
         signal = processed.mean()
         signal_history.append(signal)
         time_history.append(time.time() - start_time)
-        
+
         # Update BPM
         if (time.time() - last_update_time > update_interval) and (len(signal_history) > fps):
             filtered = bandpass_filter(signal_history[-fps:])
             fft = np.fft.rfft(filtered)
-            freqs = np.fft.rfftfreq(len(filtered), d=1.0/fps)
-            
+            freqs = np.fft.rfftfreq(len(filtered), d=1.0 / fps)
+
             mask = (freqs >= 1.0) & (freqs <= 2.0)
             if np.any(mask):
                 peak_freq = freqs[mask][np.argmax(np.abs(fft[mask]))]
@@ -148,35 +148,35 @@ while st.session_state.running:
                     bpm_buffer.pop(0)
                 last_bpm = np.mean(bpm_buffer)
                 last_update_time = time.time()
-        
+
         # Visualization
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(frame, f"BPM: {int(last_bpm) if last_bpm > 0 else 'Calculating...'}", 
-                    (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
+        cv2.putText(frame, f"BPM: {int(last_bpm) if last_bpm > 0 else 'Calculating...'}",
+                    (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
         # Display signal
         signal_img = np.zeros((200, 400, 3), dtype=np.uint8)
         if len(signal_history) > 10:
             normalized_signals = (signal_history[-100:] - np.min(signal_history[-100:])) / \
-                                 (np.max(signal_history[-100:]) - np.min(signal_history[-100:]) + 1e-6)
+                                  (np.max(signal_history[-100:]) - np.min(signal_history[-100:]) + 1e-6)
             for i in range(1, len(normalized_signals)):
                 cv2.line(
-                    signal_img, 
-                    (int((i-1)*4), int(150*(1-normalized_signals[i-1]))), 
-                    (int(i*4), int(150*(1-normalized_signals[i]))), 
+                    signal_img,
+                    (int((i - 1) * 4), int(150 * (1 - normalized_signals[i - 1]))),
+                    (int(i * 4), int(150 * (1 - normalized_signals[i]))),
                     (0, 255, 0), 2
                 )
-        
+
     # Convert to RGB for Streamlit
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    
+
     # Update displays
     video_placeholder.image(frame, channels="RGB", use_column_width=True)
     bpm_placeholder.metric("Current Heart Rate", f"{int(last_bpm)} BPM" if last_bpm > 0 else "---")
-    
+
     if 'signal_img' in locals():
         signal_placeholder.image(signal_img, caption="Pulse Signal", use_column_width=True)
-    
+
     # Small delay to prevent high CPU usage
     time.sleep(0.03)
 
