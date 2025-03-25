@@ -5,6 +5,7 @@ from scipy.signal import butter, lfilter, find_peaks
 import time
 import tensorflow as tf
 from tensorflow.keras import layers, models
+from PIL import Image
 
 # Page config
 st.set_page_config(
@@ -108,11 +109,11 @@ if 'model' not in st.session_state:
 
 if capture_button:
     try:
-        if st.session_state.cap is None:
-            st.session_state.cap = cv2.VideoCapture(0)
-        ret, frame = st.session_state.cap.read()
-        if ret:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        webcam_image = st.camera_input("Take a picture using your webcam", key="webcam_capture")
+        if webcam_image:
+            image = Image.open(webcam_image)
+            frame = np.array(image)
+            gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
             faces = face_cascade.detectMultiScale(gray, 1.1, 4)
             if len(faces) > 0:
                 x, y, w, h = faces[0]
@@ -150,13 +151,10 @@ if capture_button:
             else:
                 st.warning("No face detected.")
         else:
-            st.error("Failed to capture image.")
+            st.warning("No image captured from webcam.")
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
 
 if stop_button:
-    if st.session_state.cap is not None:
-        st.session_state.cap.release()
-        st.session_state.cap = None
     st.stop()
