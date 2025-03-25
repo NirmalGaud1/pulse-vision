@@ -59,6 +59,7 @@ update_interval = 1  # Update BPM every second
 last_update_time = time.time()
 signal_history = []
 time_history = []
+CONFIDENCE_THRESHOLD = 0.78  # Add confidence threshold.
 
 # Bandpass filter
 def butter_bandpass(lowcut, highcut, fs, order=5):
@@ -110,8 +111,8 @@ while st.session_state.running:
     # Face detection
     if model_choice == "Dlib (Recommended)":
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = detector(gray)
-        boxes = [[face.left(), face.top(), face.right(), face.bottom()] for face in faces]
+        faces, scores, idx = detector.run(gray, 1) # added upsampling.
+        boxes = [[face.left(), face.top(), face.right(), face.bottom()] for face in faces if scores[faces.index(face)] > CONFIDENCE_THRESHOLD] #added confidence threshold.
     else:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
