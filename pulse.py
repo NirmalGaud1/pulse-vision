@@ -1,160 +1,108 @@
 import streamlit as st
 import cv2
 import numpy as np
-from scipy.signal import butter, lfilter, find_peaks
 import time
-import tensorflow as tf
-from tensorflow.keras import layers, models
-from PIL import Image
+from cvzone.FaceDetectionModule import FaceDetector
+from cvzone.PlotModule import LivePlot
 
-# Page config
-st.set_page_config(
-    page_title="PulseVision - Real-time Heart Rate Monitor",
-    page_icon="❤️",
-    layout="wide"
-)
+class HeartRateMonitor:
+    def __init__(self):
+        self.detector = FaceDetector()
+        self.plotter = LivePlot(640, 480, [20, 160], invert=True)
+        self.buffer = []
+        self.buffer_size = 10
+        self.roi_size = (160, 120)
+        self.gaussian_levels = 3
+        self.amplification_factor = 170
+        self.fps = 30  # Assuming 30 FPS, adjust if needed
+        self.time_buffer = [] # for plotting time vs bpm
+        self.start_time = time.time() # for calculating elapsed time
 
-# Main UI
-st.title("❤️ PulseVision - Real-time Heart Rate Monitoring")
-col1, col2 = st.columns(2)
+    def process_frame(self, frame):
+        img, bboxs = self.detector.findFaces(frame, draw=False)
+        if bboxs:
+            x, y, w, h = bboxs[0]['bbox']
+            roi = img[y:y + h, x:x + w]
+            roi = cv2.resize(roi, self.roi_size)
+            return roi, img
+        return None, img
 
-with col1:
-    st.subheader("Captured Image")
-    image_placeholder = st.empty()
+    def gaussian_pyramid(self, roi):
+        pyramid = [roi]
+        for _ in range(self.gaussian_levels):
+            roi = cv2.pyrDown(roi)
+            pyramid.append(roi)
+        return pyramid
 
-with col2:
-    st.subheader("Vital Signs")
-    bpm_placeholder = st.empty()
-    bp_placeholder = st.empty()
-    signal_placeholder = st.empty()
-    st.markdown("---")
-    st.subheader("Controls")
-    capture_button = st.button("Capture Image")
-    stop_button = st.button("Stop Monitoring")
+    def magnify_color(self, pyramid):
+        magnified_pyramid = []
+        for level in pyramid:
+            level = level.astype(np.float32)
+            magnified_pyramid.append(level)
+        return magnified_pyramid
 
-# State management
-if 'running' not in st.session_state:
-    st.session_state.running = False
-if 'cap' not in st.session_state:
-    st.session_state.cap = None
-if 'model' not in st.session_state:
-    st.session_state.model = None
+    def bandpass_filter(self, magnified_pyramid):
+        filtered_pyramid = []
+        for level in magnified_pyramid:
+            fft = np.fft.fft2(level, axes=(0, 1))
+            freqs = np.fft.fftfreq(level.shape[0])
+            freqs_y = np.fft.fftfreq(level.shape[1])
+            f = np.sqrt(freqs[:, None] ** 2 + freqs_y[None, :] ** 2)
+            mask = (f >= 1 / self.fps) & (f <= 2 / self.fps)
+            fft[~mask] = 0
+            filtered = np.fft.ifft2(fft, axes=(0, 1)).real
+            filtered_pyramid.append(filtered)
+        return filtered_pyramid
 
-# Parameters
-BUFFER_SIZE = 150
-bpm_buffer = []
-last_bpm = 0
-last_bp = "120/80"
-fps = 30
-update_interval = 1
-signal_history = []
-frame_buffer = []
+    def calculate_bpm(self, filtered_pyramid):
+        signal = filtered_pyramid[-1].mean(axis=(0, 1))
+        fft = np.fft.fft(signal)
+        freqs = np.fft.fftfreq(signal.size, 1 / self.fps)
+        mask = (freqs >= 1) & (freqs <= 2)
+        fft[~mask] = 0
+        peak_freq = abs(freqs[np.argmax(abs(fft))])
+        bpm = peak_freq * 60
+        return bpm
 
-# Initialize model
-def build_attention_model(input_shape):
-    inputs = layers.Input(shape=input_shape)
-    x_motion = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
-    x_motion = layers.Conv2D(32, (3, 3), activation='relu')(x_motion)
-    x_app = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
-    x_app = layers.Conv2D(32, (3, 3), activation='relu')(x_app)
-    attention = layers.Conv2D(1, (1, 1), activation='sigmoid')(x_app)
-    attention = layers.Multiply()([x_motion, attention])
-    x = layers.AveragePooling2D((2, 2))(attention)
-    x = layers.Dropout(0.25)(x)
-    x = layers.Flatten()(x)
-    x = layers.Dense(128, activation='relu')(x)
-    x = layers.Dropout(0.5)(x)
-    output = layers.Dense(1)(x)
-    model = models.Model(inputs=inputs, outputs=output)
-    return model
+def main():
+    st.title("Real-Time Heart Rate Monitor")
+    cap = cv2.VideoCapture(0)
+    monitor = HeartRateMonitor()
+    placeholder = st.empty()
 
-# Bandpass filter
-def butter_bandpass(lowcut, highcut, fs, order=5):
-    nyq = 0.5 * fs
-    low = lowcut / nyq
-    high = highcut / nyq
-    b, a = butter(order, [low, high], btype='band')
-    return b, a
+    while True:
+        success, frame = cap.read()
+        if not success:
+            break
+        roi, frame = monitor.process_frame(frame)
+        if roi is not None:
+            pyramid = monitor.gaussian_pyramid(roi)
+            magnified_pyramid = monitor.magnify_color(pyramid)
+            filtered_pyramid = monitor.bandpass_filter(magnified_pyramid)
+            bpm = monitor.calculate_bpm(filtered_pyramid)
 
-def bandpass_filter(data, lowcut=0.75, highcut=3.0, fs=30, order=5):
-    b, a = butter_bandpass(lowcut, highcut, fs, order=order)
-    y = lfilter(b, a, data)
-    return y
+            monitor.buffer.append(bpm)
+            if len(monitor.buffer) > monitor.buffer_size:
+                monitor.buffer.pop(0)
 
-# Process ROI
-def process_roi(roi):
-    lab = cv2.cvtColor(roi, cv2.COLOR_BGR2LAB)
-    a_channel = lab[:, :, 1]
-    a_channel = cv2.resize(a_channel, (160, 120))
-    processed = (a_channel - a_channel.mean()) / (a_channel.std() + 1e-6)
-    if len(frame_buffer) > 0:
-        prev_frame = frame_buffer[-1]
-        diff = processed - prev_frame
-        processed = processed * 0.7 + diff * 0.3
-    frame_buffer.append(processed.copy())
-    if len(frame_buffer) > 5:
-        frame_buffer.pop(0)
-    return processed
-
-def estimate_blood_pressure(bpm):
-    systolic = 120 + (bpm - 60) * 0.2
-    diastolic = 80 + (bpm - 60) * 0.1
-    return f"{int(systolic)}/{int(diastolic)}"
-
-# Haar Cascade
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-
-if 'model' not in st.session_state:
-    st.session_state.model = build_attention_model((120, 160, 1))
-
-if capture_button:
-    try:
-        webcam_image = st.camera_input("Take a picture using your webcam", key="webcam_capture")
-        if webcam_image:
-            image = Image.open(webcam_image)
-            frame = np.array(image)
-            gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-            if len(faces) > 0:
-                x, y, w, h = faces[0]
-                x1, y1, x2, y2 = x, y, x + w, y + h
-                roi = frame[y1:y1 + (y2 - y1) // 3, x1:x2]
-                processed = process_roi(roi)
-                signal = processed.mean()
-                signal_history.append(signal)
-
-                if len(signal_history) > fps:
-                    filtered = bandpass_filter(signal_history[-fps * 3:])
-                    peaks, _ = find_peaks(filtered, distance=fps // 2)
-                    if len(peaks) > 1:
-                        intervals = np.diff(peaks) / fps
-                        bpm = 60 / np.mean(intervals)
-                        bpm_buffer.append(bpm)
-                        if len(bpm_buffer) > BUFFER_SIZE:
-                            bpm_buffer.pop(0)
-                        last_bpm = np.median(bpm_buffer)
-                        last_bp = estimate_blood_pressure(last_bpm)
-                        bpm_placeholder.metric("Current Heart Rate", f"{int(last_bpm)} BPM" if last_bpm > 0 else "---")
-                        bp_placeholder.metric("Estimated Blood Pressure", last_bp)
-
-                signal_img = np.zeros((200, 400, 3), dtype=np.uint8)
-                if len(signal_history) > 10:
-                    signals = signal_history[-100:]
-                    normalized = (signals - np.min(signals)) / (np.max(signals) - np.min(signals) + 1e-6)
-                    for i in range(1, len(normalized)):
-                        cv2.line(signal_img, (int((i - 1) * 4), int(180 * (1 - normalized[i - 1]))),
-                                 (int(i * 4), int(180 * (1 - normalized[i]))), (0, 255, 0), 2)
-                signal_placeholder.image(signal_img, caption="Pulse Signal", use_container_width=True)
-
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                image_placeholder.image(frame, channels="RGB", use_container_width=True)
+            if len(monitor.buffer) == monitor.buffer_size:
+                avg_bpm = np.mean(monitor.buffer)
+                cv2.putText(frame, f"BPM: {avg_bpm:.2f}", (frame.shape[1] // 2 - 50, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                elapsed_time = time.time() - monitor.start_time
+                monitor.time_buffer.append(elapsed_time)
+                frame = monitor.plotter.update(avg_bpm, frame, monitor.time_buffer)
             else:
-                st.warning("No face detected.")
+                cv2.putText(frame, "Calculating BPM...", (frame.shape[1] // 2 - 100, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+            placeholder.image(frame, channels="BGR")
+
         else:
-            st.warning("No image captured from webcam.")
+            placeholder.image(frame, channels="BGR")
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
+    cap.release()
+    cv2.destroyAllWindows()
 
-if stop_button:
-    st.stop()
+if __name__ == "__main__":
+    main()
