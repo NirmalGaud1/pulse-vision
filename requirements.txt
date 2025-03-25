@@ -4,3 +4,4 @@ ultralytics
 streamlit
 ultralytics
 opencv-python
+libgl1
