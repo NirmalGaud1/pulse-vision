@@ -160,10 +160,12 @@ while st.session_state.running:
             normalized_signals = (signal_history[-100:] - np.min(signal_history[-100:])) / \
                                (np.max(signal_history[-100:]) - np.min(signal_history[-100:]) + 1e-6)
             for i in range(1, len(normalized_signals)):
-                cv2.line(signal_img, 
-                        (int((i-1)*4), int(150*(1-normalized_signals[i-1]))), 
-                        (int(i*4), int(150*(1-normalized_signals[i])))), 
-                        (0, 255, 0), 2)
+                cv2.line(
+                    signal_img, 
+                    (int((i-1)*4), int(150*(1-normalized_signals[i-1]))), 
+                    (int(i*4), int(150*(1-normalized_signals[i])))), 
+                    (0, 255, 0), 2
+                )
     
     # Convert to RGB for Streamlit
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
