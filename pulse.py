@@ -3,7 +3,6 @@ import cv2
 import numpy as np
 from scipy.signal import butter, lfilter
 import time
-from ultralytics import YOLO
 
 # Page config
 st.set_page_config(
@@ -11,21 +10,6 @@ st.set_page_config(
     page_icon="❤️",
     layout="wide"
 )
-
-# Sidebar
-st.sidebar.title("Settings")
-model_choice = st.sidebar.radio(
-    "Select Face Detector",
-    ("YOLOv8-face (Recommended)", "OpenCV Haar Cascade")
-)
-
-# Initialize YOLOv8-face (load only once)
-@st.cache_resource
-def load_yolo():
-    return YOLO('yolov8n.pt')  # Make sure to use the face detection model
-
-if model_choice == "YOLOv8-face (Recommended)":
-    model = load_yolo()
 
 # Main UI
 st.title("❤️ PulseVision - Real-time Heart Rate Monitoring")
@@ -94,14 +78,17 @@ if start_button and not st.session_state.running:
         signal_history = []
         time_history = []
         start_time = time.time()
-        st.rerun()  # Force a rerun to start the processing loop
+        st.rerun()
 
 if stop_button and st.session_state.running:
     st.session_state.running = False
     if st.session_state.cap is not None:
         st.session_state.cap.release()
         st.session_state.cap = None
-    st.rerun()  # Force a rerun to stop the processing loop
+    st.rerun()
+
+# Load Haar Cascade classifier
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
 # Main processing loop
 if st.session_state.running:
@@ -117,19 +104,14 @@ if st.session_state.running:
                 st.session_state.cap.release()
                 st.session_state.cap = None
         else:
-            # Face detection
-            if model_choice == "YOLOv8-face (Recommended)":
-                results = model(frame, verbose=False)
-                boxes = results[0].boxes.xyxy.cpu().numpy()
-            else:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-                faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-                boxes = [[x, y, x + w, y + h] for (x, y, w, h) in faces]
-
-            if len(boxes) > 0:
+            # Face detection using Haar Cascade
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+            
+            if len(faces) > 0:
                 # Get first face
-                x1, y1, x2, y2 = boxes[0].astype(int)
+                x, y, w, h = faces[0]
+                x1, y1, x2, y2 = x, y, x + w, y + h
 
                 # Extract ROI (forehead)
                 roi = frame[y1:y1 + (y2 - y1) // 3, x1:x2]
@@ -192,11 +174,10 @@ if not st.session_state.running and st.session_state.cap is not None:
 # Instructions
 st.sidebar.markdown("""
 ### How to Use:
-1. Select face detector (YOLOv8-face recommended)
-2. Click **Start Monitoring**
-3. Position face in camera view
-4. Remain still for accurate readings
-5. Click **Stop Monitoring** when done
+1. Click **Start Monitoring**
+2. Position face in camera view
+3. Remain still for accurate readings
+4. Click **Stop Monitoring** when done
 
 ### Tips:
 - Ensure good lighting
