@@ -1,5 +1,6 @@
-streamlit 
-opencv-python 
 numpy 
 scipy 
 ultralytics
+streamlit
+ultralytics
+opencv-python
