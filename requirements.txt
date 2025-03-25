@@ -4,4 +4,4 @@ ultralytics
 streamlit
 ultralytics
 opencv-python
-libgl1
+mesa-utils
