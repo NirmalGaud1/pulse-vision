@@ -19,11 +19,11 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("Live Camera Feed")
     camera_placeholder = st.empty()
-    webcam_image = st.camera_input("Take a picture for heart rate monitoring", key="webcam")
 
 with col2:
     st.subheader("Vital Signs")
     bpm_placeholder = st.empty()
+    bp_placeholder = st.empty()  # Blood pressure placeholder
     signal_placeholder = st.empty()
     st.markdown("---")
     st.subheader("Controls")
@@ -35,13 +35,14 @@ if 'running' not in st.session_state:
     st.session_state.running = False
 if 'frame' not in st.session_state:
     st.session_state.frame = None
-if 'last_image_time' not in st.session_state:
-    st.session_state.last_image_time = 0
+if 'cap' not in st.session_state:
+    st.session_state.cap = None
 
 # Parameters
 BUFFER_SIZE = 10
 bpm_buffer = []
 last_bpm = 0
+last_bp = "120/80"  # Initial blood pressure value
 fps = 30
 update_interval = 1  # Update BPM every second
 last_update_time = time.time()
@@ -70,6 +71,13 @@ def process_roi(roi):
     processed = (a_channel - a_channel.mean()) / a_channel.std()
     return processed
 
+# Estimate blood pressure (simplified estimation)
+def estimate_blood_pressure(bpm):
+    # This is a placeholder - in a real app you would use proper PPG analysis
+    systolic = 120 + (bpm - 60) * 0.2
+    diastolic = 80 + (bpm - 60) * 0.1
+    return f"{int(systolic)}/{int(diastolic)}"
+
 # Load Haar Cascade classifier
 try:
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -77,23 +85,31 @@ except Exception as e:
     st.error(f"Failed to load face detection model: {str(e)}")
     st.session_state.running = False
 
-if start_button:
+if start_button and not st.session_state.running:
     st.session_state.running = True
-    start_time = time.time()
-    signal_history = []
-    time_history = []
+    st.session_state.cap = cv2.VideoCapture(0)
+    if not st.session_state.cap.isOpened():
+        st.error("Could not open webcam")
+        st.session_state.running = False
+    else:
+        st.session_state.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        st.session_state.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        signal_history = []
+        time_history = []
+        start_time = time.time()
 
-if stop_button:
+if stop_button and st.session_state.running:
     st.session_state.running = False
+    if st.session_state.cap is not None:
+        st.session_state.cap.release()
+        st.session_state.cap = None
 
 # Main processing loop
-if st.session_state.running and webcam_image is not None:
-    try:
-        # Convert the webcam image to OpenCV format
-        image = Image.open(webcam_image)
-        frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        st.session_state.frame = frame
-        
+if st.session_state.running and st.session_state.cap is not None:
+    cap = st.session_state.cap
+    ret, frame = cap.read()
+    
+    if ret:
         # Face detection using Haar Cascade
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         faces = face_cascade.detectMultiScale(gray, 1.1, 4)
@@ -126,6 +142,7 @@ if st.session_state.running and webcam_image is not None:
                     if len(bpm_buffer) > BUFFER_SIZE:
                         bpm_buffer.pop(0)
                     last_bpm = np.mean(bpm_buffer)
+                    last_bp = estimate_blood_pressure(last_bpm)
                     last_update_time = time.time()
 
             # Visualization
@@ -145,16 +162,20 @@ if st.session_state.running and webcam_image is not None:
                         (int(i * 4), int(150 * (1 - normalized_signals[i]))),
                         (0, 255, 0), 2
                     )
-                signal_placeholder.image(signal_img, caption="Pulse Signal", use_column_width=True)
 
         # Convert to RGB for Streamlit
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        camera_placeholder.image(frame, channels="RGB", use_column_width=True)
+        camera_placeholder.image(frame, channels="RGB", use_container_width=True)
         bpm_placeholder.metric("Current Heart Rate", f"{int(last_bpm)} BPM" if last_bpm > 0 else "---")
+        bp_placeholder.metric("Estimated Blood Pressure", last_bp)
+        
+        if 'signal_img' in locals():
+            signal_placeholder.image(signal_img, caption="Pulse Signal", use_container_width=True)
 
-    except Exception as e:
-        st.error(f"Error during processing: {str(e)}")
-        st.session_state.running = False
+# Cleanup when stopping
+if not st.session_state.running and st.session_state.cap is not None:
+    st.session_state.cap.release()
+    st.session_state.cap = None
 
 # Instructions
 st.sidebar.markdown("""
@@ -168,4 +189,7 @@ st.sidebar.markdown("""
 - Ensure good lighting
 - Minimize head movements
 - Avoid strong backlight
+
+### Note:
+Blood pressure estimation is simulated. For medical-grade measurements, use dedicated devices.
 """)
