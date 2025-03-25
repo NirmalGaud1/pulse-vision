@@ -68,11 +68,22 @@ def process_roi(roi):
 if start_button and not st.session_state.running:
     st.session_state.running = True
     try:
-        st.session_state.cap = cv2.VideoCapture(0)
+        cap_index = 0 #start with 0, and increment if needed.
+        st.session_state.cap = cv2.VideoCapture(cap_index)
         if not st.session_state.cap.isOpened():
-            st.error("Error: Could not open video capture device. Please check your camera connection.")
-            st.session_state.running = False
-            st.session_state.cap = None
+            cap_index = 1 #try the next index.
+            st.session_state.cap = cv2.VideoCapture(cap_index)
+            if not st.session_state.cap.isOpened():
+                st.error("Error: Could not open video capture device. Please check your camera connection.")
+                st.session_state.running = False
+                st.session_state.cap = None
+            else:
+                st.session_state.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                st.session_state.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                signal_history = []
+                time_history = []
+                start_time = time.time()
+                st.rerun()
         else:
             st.session_state.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             st.session_state.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -84,13 +95,6 @@ if start_button and not st.session_state.running:
         st.error(f"An error occurred while accessing the webcam: {e}")
         st.session_state.running = False
         st.session_state.cap = None
-
-if stop_button and st.session_state.running:
-    st.session_state.running = False
-    if st.session_state.cap is not None:
-        st.session_state.cap.release()
-        st.session_state.cap = None
-    st.rerun()
 
 # Load Haar Cascade classifier
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
